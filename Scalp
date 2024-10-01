@@ -1,0 +1,55 @@
+import pandas as pd
+import ta
+import backtrader as bt
+
+class ScalpingStrategy(bt.Strategy):
+    params = (
+        ('sma5_period', 5),
+        ('sma8_period', 8),
+        ('sma13_period', 13),
+        ('bb_period', 20),
+        ('bb_dev', 2),
+        ('rsi_period', 14),
+    )
+
+    def __init__(self):
+        self.sma5 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.sma5_period)
+        self.sma8 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.sma8_period)
+        self.sma13 = bt.indicators.SimpleMovingAverage(self.data.close, period=self.params.sma13_period)
+        self.bb = bt.indicators.BollingerBands(self.data.close, period=self.params.bb_period, devfactor=self.params.bb_dev)
+        self.rsi = bt.indicators.RelativeStrengthIndex(self.data.close, period=self.params.rsi_period)
+
+    def next(self):
+        if self.sma5 > self.sma8 > self.sma13 and self.data.close[0] < self.bb.lines.bot and self.rsi < 30:
+            self.buy()
+        elif self.sma5 < self.sma8 < self.sma13 and self.data.close[0] > self.bb.lines.top and self.rsi > 70:
+            self.sell()
+
+    def notify_order(self, order):
+        if order.status in [order.Completed]:
+            if order.isbuy():
+                self.log(f'BUY EXECUTED, {order.executed.price}')
+            elif order.issell():
+                self.log(f'SELL EXECUTED, {order.executed.price}')
+
+    def notify_trade(self, trade):
+        if not trade.isclosed:
+            return
+        self.log(f'OPERATION PROFIT, GROSS {trade.pnl}, NET {trade.pnlcomm}')
+
+    def log(self, txt, dt=None):
+        dt = dt or self.datas[0].datetime.date(0)
+        print(f'{dt.isoformat()}, {txt}')
+
+# Load your data
+data = pd.read_csv('your_data.csv', index_col='Date', parse_dates=True)
+datafeed = bt.feeds.PandasData(dataname=data)
+
+# Initialize Cerebro engine
+cerebro = bt.Cerebro()
+cerebro.addstrategy(ScalpingStrategy)
+cerebro.adddata(datafeed)
+cerebro.broker.set_cash(100000)
+cerebro.addsizer(bt.sizers.PercentSizer, percents=1)
+cerebro.run()
+cerebro.plot()
